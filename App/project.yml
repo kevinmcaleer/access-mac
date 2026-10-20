@@ -1,0 +1,67 @@
+# Generates AccessMac.xcodeproj: run `xcodegen generate` in this folder.
+name: AccessMac
+options:
+  bundleIdPrefix: com.kevinmcaleer
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+packages:
+  AccessKit:
+    path: ..
+targets:
+  AccessMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: AccessMac
+    dependencies:
+      - package: AccessKit
+        product: AccessEngine
+      - package: AccessKit
+        product: AccessCore
+    info:
+      path: AccessMac/Info.plist
+      properties:
+        CFBundleDisplayName: Access for Mac
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSApplicationCategoryType: public.app-category.developer-tools
+        NSHumanReadableCopyright: ""
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Microsoft Access Database (.mdb)
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Default
+            LSItemContentTypes: [com.microsoft.access.mdb]
+          - CFBundleTypeName: Microsoft Access Database (.accdb)
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Default
+            LSItemContentTypes: [com.microsoft.access.accdb]
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.microsoft.access.mdb
+            UTTypeDescription: Microsoft Access Database
+            UTTypeConformsTo: [public.data, public.database]
+            UTTypeTagSpecification:
+              public.filename-extension: [mdb, mde]
+              public.mime-type: [application/x-msaccess]
+          - UTTypeIdentifier: com.microsoft.access.accdb
+            UTTypeDescription: Microsoft Access Database
+            UTTypeConformsTo: [public.data, public.database]
+            UTTypeTagSpecification:
+              public.filename-extension: [accdb, accde]
+              public.mime-type: [application/msaccess]
+    settings:
+      base:
+        PRODUCT_NAME: Access for Mac
+        PRODUCT_BUNDLE_IDENTIFIER: com.kevinmcaleer.AccessMac
+        MARKETING_VERSION: "0.1.0"
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_ENTITLEMENTS: AccessMac/AccessMac.entitlements
+        COMBINE_HIDPI_IMAGES: YES
+schemes:
+  AccessMac:
+    build:
+      targets:
+        AccessMac: all

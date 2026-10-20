@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine-linux:
+    name: Engine tests (Linux)
+    runs-on: ubuntu-latest
+    container: swift:6.2-noble
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift build
+      - run: swift test
+
+  macos:
+    name: Package tests and app build (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package tests
+        run: swift test
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+        working-directory: App
+      - name: Build app
+        run: |
+          xcodebuild -project App/AccessMac.xcodeproj -scheme AccessMac \
+            -configuration Release -destination 'platform=macOS' \
+            -derivedDataPath build \
+            build | tee xcodebuild.log | grep -E '(error|warning:|BUILD)' || true
+          test "${PIPESTATUS[0]}" -eq 0
+      - name: Package app
+        run: |
+          ditto -c -k --keepParent "build/Build/Products/Release/Access for Mac.app" AccessForMac.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AccessForMac
+          path: AccessForMac.zip
+          retention-days: 14
