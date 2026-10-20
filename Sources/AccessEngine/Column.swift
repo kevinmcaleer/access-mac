@@ -80,6 +80,8 @@ public struct Column: Sendable, Hashable {
     public let scale: Int
     let flags: UInt8
     let extFlags: UInt8
+    /// Text collation: the locale value and, in Jet 4 and later, a version.
+    let sortOrder: SortOrder
 
     public var isFixedLength: Bool { flags & 0x01 != 0 }
     public var isAutoNumber: Bool { flags & 0x04 != 0 || flags & 0x40 != 0 }
@@ -89,6 +91,18 @@ public struct Column: Sendable, Hashable {
 
     /// Declared size in characters for Short Text, bytes for other types.
     public var size: Int { type == .text ? length / 2 : length }
+}
+
+/// The collating order of a text column, which decides how its index keys
+/// are encoded.
+struct SortOrder: Hashable, Sendable {
+    var value: UInt16
+    var version: UInt8
+
+    /// "General" in Access 2010 and later.
+    static let general = SortOrder(value: 1033, version: 1)
+    /// "General - Legacy", the default for Jet 4 and Access 2007.
+    static let generalLegacy = SortOrder(value: 1033, version: 0)
 }
 
 /// An index: a logical index as Access shows it, backed by a physical one.
@@ -101,6 +115,12 @@ public struct Index: Sendable, Hashable {
     public let isUnique: Bool
     public let ignoresNulls: Bool
     public let isRequired: Bool
+    /// The physical index's root page and its number in the definition.
+    let rootPage: UInt32
+    let physicalIndex: Int
+    /// The usage map of the index's pages, and its raw flag byte.
+    let pagesMap: RowPointer
+    let flags: UInt8
 
     public static func == (lhs: Index, rhs: Index) -> Bool {
         lhs.name == rhs.name && lhs.kind == rhs.kind

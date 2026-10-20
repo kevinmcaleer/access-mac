@@ -8,6 +8,12 @@ struct TableDefinition {
     let indexes: [Index]
     let usageMap: RowPointer
     let freeMap: RowPointer
+    /// The highest column number ever used plus one: the size of every row's
+    /// null mask.
+    let maxColumnCount: Int
+    let realIndexCount: Int
+    /// Per-column page maps for long values (ACE), keyed by column number.
+    let longValueMaps: [Int: (owned: RowPointer, free: RowPointer)]
 
     init(page: UInt32, source: PageSource) throws {
         let layout = source.layout
@@ -31,9 +37,11 @@ struct TableDefinition {
         rowCount = Int(buffer.u32(layout.tdefNumRowsOffset))
         isSystem = buffer[layout.tdefTableTypeOffset] == 0x53
         numVarColumns = Int(buffer.u16(layout.tdefNumVarColsOffset))
+        maxColumnCount = Int(buffer.u16(layout.tdefMaxColsOffset))
         let numColumns = Int(buffer.u16(layout.tdefNumColsOffset))
         let numIndexes = Int(buffer.u32(layout.tdefNumIndexesOffset))
         let numRealIndexes = Int(buffer.u32(layout.tdefNumRealIndexesOffset))
+        realIndexCount = numRealIndexes
         usageMap = RowPointer(raw: buffer.u32(layout.tdefUsageMapOffset))
         freeMap = RowPointer(raw: buffer.u32(layout.tdefFreeMapOffset))
 
@@ -66,12 +74,13 @@ struct TableDefinition {
                 precision: Int(buffer[e + layout.colPrecisionOffset]),
                 scale: Int(buffer[e + layout.colScaleOffset]),
                 flags: buffer[e + layout.colFlagsOffset],
-                extFlags: layout.colExtFlagsOffset.map { buffer[e + $0] } ?? 0))
+                extFlags: layout.colExtFlagsOffset.map { buffer[e + $0] } ?? 0,
+                sortOrder: Self.sortOrder(buffer, entry: e, format: source.header.format)))
         }
         self.columns = columns.sorted { $0.number < $1.number }
 
         // Physical ("real") index definitions: up to ten key columns each.
-        struct RealIndex { var columns: [(Int, Bool)]; var flags: UInt8 }
+        struct RealIndex { var columns: [(Int, Bool)]; var pages: RowPointer; var root: UInt32; var flags: UInt8 }
         var realIndexes: [RealIndex] = []
         for _ in 0..<numRealIndexes {
             guard offset + layout.realIndexDefSize <= buffer.count else { break }
@@ -79,11 +88,12 @@ struct TableDefinition {
             var p = offset + layout.realIndexDefLeadIn
             for _ in 0..<10 {
                 let number = buffer.u16(p)
-                if number != 0xFFFF { keys.append((Int(number), buffer[p + 2] != 0x02)) }
+                if number != 0xFFFF { keys.append((Int(number), buffer[p + 2] & 0x01 != 0)) }
                 p += 3
             }
-            p += 8  // usage map and first data page
-            realIndexes.append(RealIndex(columns: keys, flags: buffer[p]))
+            // The index's usage map, then its root page, then its flags.
+            let root = buffer.u32(p + 4)
+            realIndexes.append(RealIndex(columns: keys, pages: RowPointer(raw: buffer.u32(p)), root: root, flags: buffer[p + 8]))
             offset += layout.realIndexDefSize
         }
 
@@ -108,9 +118,36 @@ struct TableDefinition {
                 columns: real.columns.map { (number: $0.0, ascending: $0.1) },
                 isUnique: real.flags & 0x01 != 0 || kind == .primaryKey,
                 ignoresNulls: real.flags & 0x02 != 0,
-                isRequired: real.flags & 0x08 != 0))
+                isRequired: real.flags & 0x08 != 0,
+                rootPage: real.root, physicalIndex: entry.real, pagesMap: real.pages, flags: real.flags))
         }
         self.indexes = indexes
+
+        var longValueMaps: [Int: (owned: RowPointer, free: RowPointer)] = [:]
+        while offset + 10 <= buffer.count {
+            let number = buffer.u16(offset)
+            if number == 0xFFFF { break }
+            longValueMaps[Int(number)] = (RowPointer(raw: buffer.u32(offset + 2)), RowPointer(raw: buffer.u32(offset + 6)))
+            offset += 10
+        }
+        self.longValueMaps = longValueMaps
+    }
+}
+
+extension TableDefinition {
+    /// Jet 4 and later store a 2-byte collation value and, three bytes in, a
+    /// version. A zero value means the format's default.
+    static func sortOrder(_ buffer: [UInt8], entry: Int, format: FileFormat) -> SortOrder {
+        let fallback: SortOrder
+        switch format {
+        case .jet3: fallback = SortOrder(value: 1033, version: 0xFF)
+        case .jet4, .ace12: fallback = .generalLegacy
+        default: fallback = .general
+        }
+        let value = buffer.u16(entry + (format.isJet3 ? 9 : 11))
+        if value == 0 { return fallback }
+        if format.isJet3 { return SortOrder(value: value, version: 0xFF) }
+        return SortOrder(value: value, version: buffer[entry + 14])
     }
 }
 

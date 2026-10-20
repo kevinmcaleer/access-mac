@@ -67,6 +67,22 @@ public struct AccessDate: Hashable, Sendable, CustomStringConvertible {
 
     public init(rawValue: Double) { self.rawValue = rawValue }
 
+    /// The date and time given by calendar fields (proleptic Gregorian).
+    public init(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0, second: Int = 0) {
+        // Days-from-civil (Howard Hinnant), shifted so 1899-12-30 is day 0.
+        let y = month <= 2 ? year - 1 : year
+        let era = (y >= 0 ? y : y - 399) / 400
+        let yoe = y - era * 400
+        let mp = (month + 9) % 12
+        let doy = (153 * mp + 2) / 5 + day - 1
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+        let days = era * 146_097 + doe - 719_468 + 25_569
+        let fraction = Double(hour * 3600 + minute * 60 + second) / 86_400
+        // Before 1899 the whole part is negative but the time still counts
+        // forward.
+        rawValue = days < 0 ? Double(days) - fraction : Double(days) + fraction
+    }
+
     public struct Components: Equatable, Sendable {
         public var year, month, day, hour, minute, second, millisecond: Int
     }
