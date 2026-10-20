@@ -52,7 +52,7 @@ public final class Database {
     let source: PageSource
     let codec: TextCodec
     public private(set) var catalog: [CatalogObject] = []
-    private var tableCache: [String: Table] = [:]
+    var tableCache: [String: Table] = [:]
 
     public var format: FileFormat { source.header.format }
     public var codePage: UInt16 { source.header.codePage }
@@ -114,7 +114,7 @@ public final class Database {
                 foreignName: text(foreign), connect: text(connect)))
         }
         catalog = objects
-        tableCache["MSysObjects"] = system
+        tableCache["msysobjects"] = system
     }
 
     /// Objects of one kind, sorted by name, optionally including system ones.
@@ -129,7 +129,9 @@ public final class Database {
     }
 
     public func table(named name: String) throws -> Table {
-        if let cached = tableCache[name] { return cached }
+        // One Table per table whatever the spelling, so edits share state.
+        let key = name.lowercased()
+        if let cached = tableCache[key] { return cached }
         guard let object = catalog.first(where: {
             $0.kind == .table && $0.name.caseInsensitiveCompare(name) == .orderedSame
         }) else {
@@ -137,7 +139,23 @@ public final class Database {
         }
         let definition = try TableDefinition(page: object.tableDefinitionPage, source: source)
         let table = Table(name: object.name, definition: definition, database: self)
-        tableCache[name] = table
+        tableCache[key] = table
         return table
+    }
+}
+
+extension Database {
+    /// True once any table has been changed and not yet saved.
+    public var hasUnsavedChanges: Bool { source.hasChanges }
+
+    /// The database file with every change applied, ready to write out.
+    public func savedData() throws -> Data {
+        for table in tableCache.values { try table.editorStorage?.flush() }
+        return source.serialized()
+    }
+
+    /// Writes the database, with its changes, to `url`.
+    public func save(to url: URL) throws {
+        try savedData().write(to: url, options: .atomic)
     }
 }

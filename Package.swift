@@ -12,7 +12,7 @@ let package = Package(
     ],
     targets: [
         // Reads (and later writes) the Jet/ACE page format. No UI dependency.
-        .target(name: "AccessEngine"),
+        .target(name: "AccessEngine", resources: [.copy("Resources/IndexCodes")]),
         // The object model shared by the app and the engines.
         .target(name: "AccessCore", dependencies: ["AccessEngine"]),
         // Access SQL: lexer today, parser and executor to follow.

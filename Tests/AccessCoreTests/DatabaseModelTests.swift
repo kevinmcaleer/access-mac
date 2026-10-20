@@ -14,11 +14,11 @@ final class DatabaseModelTests: XCTestCase {
     func testNavigationPaneObjects() throws {
         let model = try DatabaseModel(url: fixture("ace16-2016.accdb"))
         XCTAssertEqual(model.objects(in: .tables).map(\.name),
-                       ["AllTypes", "BigNumbers", "Customers & Orders", "ManyRows"])
+                       ["AllTypes", "BigNumbers", "Customers & Orders", "Indexed", "ManyRows"])
         XCTAssertEqual(model.objects(in: .tables, search: "rows").map(\.name), ["ManyRows"])
         XCTAssertTrue(model.objects(in: .tables, includeSystem: true).contains { $0.name == "MSysObjects" })
         XCTAssertEqual(model.objects(in: .forms), [])
-        XCTAssertEqual(model.counts()[.tables], 4)
+        XCTAssertEqual(model.counts()[.tables], 5)
         XCTAssertNotNil(model.fileSize)
     }
 

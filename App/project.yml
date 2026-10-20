@@ -14,6 +14,10 @@ targets:
     platform: macOS
     sources:
       - path: AccessMac
+        excludes:
+          - Resources
+      - path: AccessMac/Resources
+        buildPhase: resources
     dependencies:
       - package: AccessKit
         product: AccessEngine
@@ -29,11 +33,11 @@ targets:
         NSHumanReadableCopyright: ""
         CFBundleDocumentTypes:
           - CFBundleTypeName: Microsoft Access Database (.mdb)
-            CFBundleTypeRole: Viewer
+            CFBundleTypeRole: Editor
             LSHandlerRank: Default
             LSItemContentTypes: [com.microsoft.access.mdb]
           - CFBundleTypeName: Microsoft Access Database (.accdb)
-            CFBundleTypeRole: Viewer
+            CFBundleTypeRole: Editor
             LSHandlerRank: Default
             LSItemContentTypes: [com.microsoft.access.accdb]
         UTImportedTypeDeclarations:

@@ -1,0 +1,9 @@
+The index code tables in this folder come from Jackcess
+(https://jackcess.sourceforge.io/), Copyright (c) James Ahlborn,
+licensed under the Apache License, Version 2.0:
+http://www.apache.org/licenses/LICENSE-2.0
+
+Each line describes how one UTF-16 code unit is encoded in a text index
+key: S (simple), I (international), U (unprintable), P (unprintable
+modifier), Z (international with "crazy" flag), G (significant) or
+X (ignored). Lines for U+0100 onwards skip the surrogate range.

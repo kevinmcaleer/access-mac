@@ -64,7 +64,9 @@ final class FixtureTests: XCTestCase {
         case (.long(let v), let n as NSNumber): XCTAssertEqual(Int(v), n.intValue, context)
         case (.bigInt(let v), let n as NSNumber): XCTAssertEqual(v, n.int64Value, context)
         case (.single(let v), let n as NSNumber): XCTAssertEqual(v, n.floatValue, context)
-        case (.double(let v), let n as NSNumber): XCTAssertEqual(v, n.doubleValue, context)
+        // Linux Foundation's JSON parser can be a few ulps off on long
+        // doubles, so allow that much.
+        case (.double(let v), let n as NSNumber): XCTAssertEqual(v, n.doubleValue, accuracy: abs(v) * 1e-14, context)
         case (.currency(let v), let s as String), (.decimal(let v), let s as String):
             XCTAssertEqual(v, Decimal(string: s, locale: Locale(identifier: "en_US_POSIX")), context)
         case (.dateTime(let d), let s as String):

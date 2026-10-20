@@ -7,17 +7,17 @@ public final class Table {
     public let columns: [Column]
     public let indexes: [Index]
     /// The row count recorded in the table definition.
-    public let declaredRowCount: Int
+    public var declaredRowCount: Int { editorStorage?.rowCount ?? definition.rowCount }
     let definition: TableDefinition
-    private unowned let database: Database
-    private var cachedLocations: [RowPointer]?
+    unowned let database: Database
+    var cachedLocations: [RowPointer]?
+    var editorStorage: TableEditor?
 
     init(name: String, definition: TableDefinition, database: Database) {
         self.name = name
         self.definition = definition
         self.columns = definition.columns
         self.indexes = definition.indexes
-        self.declaredRowCount = definition.rowCount
         self.database = database
     }
 
@@ -76,6 +76,17 @@ struct RowDecoder {
     let definition: TableDefinition
 
     func decode(_ row: [UInt8]) throws -> [Value] {
+        let fields = try split(row)
+        return try definition.columns.enumerated().map { i, column in
+            if column.type == .boolean { return .boolean(fields[i] != nil) }
+            guard let bytes = fields[i] else { return .null }
+            return try decodeValue(bytes, column: column)
+        }
+    }
+
+    /// The stored bytes of each column, in column order: nil for null (and
+    /// for a false boolean, which lives only in the null mask).
+    func split(_ row: [UInt8]) throws -> [[UInt8]?] {
         let layout = database.source.layout
         let jet3 = database.format.isJet3
         guard row.count >= layout.rowColumnCountSize else { throw EngineError.corruptRow("empty row") }
@@ -103,27 +114,24 @@ struct RowDecoder {
             }
         }
 
-        return try definition.columns.map { column -> Value in
+        return try definition.columns.map { column -> [UInt8]? in
             let present = column.number < rowColumns
             let notNull = present && row[maskStart + column.number / 8] & (1 << (column.number % 8)) != 0
-            if column.type == .boolean { return .boolean(notNull) }
-            guard notNull else { return .null }
-            let bytes: [UInt8]
+            guard notNull else { return nil }
+            if column.type == .boolean { return [] }
             if column.isFixedLength {
                 let size = column.type.fixedSize ?? column.length
                 let start = layout.rowColumnCountSize + column.fixedOffset
-                guard start + size <= maskStart else { return .null }
-                bytes = Array(row[start..<start + size])
-            } else {
-                guard column.variableIndex < rowVarColumns else { return .null }
-                let start = varOffsets[column.variableIndex]
-                let stop = varOffsets[column.variableIndex + 1]
-                guard start <= stop, stop <= row.count else {
-                    throw EngineError.corruptRow("variable column \(column.name) bounds")
-                }
-                bytes = Array(row[start..<stop])
+                guard start + size <= maskStart else { return nil }
+                return Array(row[start..<start + size])
             }
-            return try decodeValue(bytes, column: column)
+            guard column.variableIndex < rowVarColumns else { return nil }
+            let start = varOffsets[column.variableIndex]
+            let stop = varOffsets[column.variableIndex + 1]
+            guard start <= stop, stop <= row.count else {
+                throw EngineError.corruptRow("variable column \(column.name) bounds")
+            }
+            return Array(row[start..<stop])
         }
     }
 

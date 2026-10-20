@@ -95,6 +95,8 @@ public class GenerateFixtures {
       new ColumnBuilder("Count", DataType.INT).addToTable(evolving);
       evolving.addRow("C3", new BigDecimal("0"), "added later", (short) 42);
 
+      buildIndexed(db);
+
       if (fmt == FileFormat.V2016) {
         db.setAllowAutoNumberInsert(false);
         try {
@@ -110,6 +112,96 @@ public class GenerateFixtures {
     }
     writeExpected(f, dir.resolve(name + ".json"));
     System.out.println("wrote " + f);
+  }
+
+  // Words that exercise the text index encoding: case, accents, ligatures,
+  // punctuation (ignored or significant), control characters and CJK.
+  static final String[] WORDS = {
+    "apple", "Apple", "APPLE", "éclair", "Eclair", "naïve", "Straße", "strasse", "æsir", "Ærø",
+    "co-op", "coop", "co op", "O'Brien", "o’brien", "tab\there", "bell\u0007x", "日本", "中文", "한국어",
+    "Ωmega", "zebra", "Zürich", "1st", "10th", "2nd", "#hash", "$cash", "_under", "~tilde",
+    "ñandú", "Œuvre", "ﬁne", "Ångström", "", " lead", "trail  ", "x\u00ADy", "€uro", "ÿes"
+  };
+
+  static void buildIndexed(Database db) throws Exception {
+    Table t = new TableBuilder("Indexed")
+        .addColumn(new ColumnBuilder("ID", DataType.LONG).setAutoNumber(true))
+        .addColumn(new ColumnBuilder("Name", DataType.TEXT).setLengthInUnits(80))
+        .addColumn(new ColumnBuilder("Amount", DataType.DOUBLE))
+        .addColumn(new ColumnBuilder("Small", DataType.INT))
+        .addColumn(new ColumnBuilder("Tiny", DataType.BYTE))
+        .addColumn(new ColumnBuilder("Price", DataType.MONEY))
+        .addColumn(new ColumnBuilder("Ratio", DataType.FLOAT))
+        .addColumn(new ColumnBuilder("When", DataType.SHORT_DATE_TIME))
+        .addColumn(new ColumnBuilder("Flag", DataType.BOOLEAN))
+        .addColumn(new ColumnBuilder("Code", DataType.GUID))
+        .addColumn(new ColumnBuilder("Dec", DataType.NUMERIC).setPrecision(12).setScale(3))
+        .addColumn(new ColumnBuilder("Bin", DataType.BINARY).setLength(20))
+        .addIndex(new IndexBuilder(IndexBuilder.PRIMARY_KEY_NAME).addColumns("ID").setPrimaryKey())
+        .addIndex(new IndexBuilder("ByName").addColumns("Name"))
+        .addIndex(new IndexBuilder("ByAmountDesc").addColumns(false, "Amount"))
+        .addIndex(new IndexBuilder("BySmall").addColumns("Small"))
+        .addIndex(new IndexBuilder("ByTiny").addColumns(false, "Tiny"))
+        .addIndex(new IndexBuilder("ByPrice").addColumns("Price"))
+        .addIndex(new IndexBuilder("ByRatio").addColumns("Ratio"))
+        .addIndex(new IndexBuilder("ByWhen").addColumns("When"))
+        .addIndex(new IndexBuilder("ByFlag").addColumns("Flag"))
+        .addIndex(new IndexBuilder("ByCode").addColumns("Code"))
+        .addIndex(new IndexBuilder("ByDec").addColumns("Dec"))
+        .addIndex(new IndexBuilder("ByDecDesc").addColumns(false, "Dec"))
+        .addIndex(new IndexBuilder("ByBin").addColumns("Bin"))
+        .addIndex(new IndexBuilder("ByNameDescAmount").addColumns(false, "Name").addColumns("Amount"))
+        .toTable(db);
+    Random r = new Random(42);
+    List<Object[]> rows = new ArrayList<>();
+    for (int i = 0; i < 2500; i++) {
+      String name = r.nextInt(12) == 0 ? null
+          : WORDS[r.nextInt(WORDS.length)] + (r.nextBoolean() ? "" : " " + WORDS[r.nextInt(WORDS.length)] + r.nextInt(100));
+      byte[] bin = null;
+      if (r.nextInt(5) != 0) {
+        bin = new byte[r.nextInt(21)];
+        r.nextBytes(bin);
+      }
+      UUID u = new UUID(r.nextLong(), r.nextLong());
+      rows.add(new Object[] {
+        Column.AUTO_NUMBER, name,
+        r.nextInt(10) == 0 ? null : (r.nextDouble() - 0.5) * Math.pow(10, r.nextInt(12) - 4),
+        r.nextInt(10) == 0 ? null : (short) (r.nextInt(65536) - 32768),
+        (byte) r.nextInt(256),
+        new BigDecimal(r.nextInt(2000000) - 1000000).movePointLeft(r.nextInt(5)),
+        (float) ((r.nextDouble() - 0.5) * 1000),
+        r.nextInt(10) == 0 ? null : LocalDateTime.of(1800 + r.nextInt(300), 1 + r.nextInt(12), 1 + r.nextInt(28),
+            r.nextInt(24), r.nextInt(60), r.nextInt(60)),
+        r.nextBoolean(),
+        r.nextInt(10) == 0 ? null : "{" + u.toString().toUpperCase() + "}",
+        r.nextInt(10) == 0 ? null : new BigDecimal(r.nextLong() % 1000000000000L).movePointLeft(3),
+        bin
+      });
+    }
+    t.addRows(rows);
+  }
+
+  static void writeIndexes(Database db, StringBuilder sb) throws Exception {
+    // For every index, the ID column of each row in index order.
+    sb.append(",\n  \"indexes\": {");
+    boolean first = true;
+    for (String tn : new TreeSet<>(db.getTableNames())) {
+      Table t = db.getTable(tn);
+      Column idCol = null;
+      for (Column c : t.getColumns()) if (c.getName().equals("ID")) idCol = c;
+      if (idCol == null) continue;
+      for (Index idx : t.getIndexes()) {
+        sb.append(first ? "\n" : ",\n").append("    ").append(q(tn + "/" + idx.getName())).append(": [");
+        first = false;
+        boolean firstId = true;
+        for (Row row : CursorBuilder.createCursor(idx)) {
+          sb.append(firstId ? "" : ",").append(row.get("ID"));
+          firstId = false;
+        }
+        sb.append("]");
+      }
+    }
+    sb.append("\n  }");
   }
 
   static void writeExpected(File f, Path json) throws Exception {
@@ -142,7 +234,9 @@ public class GenerateFixtures {
         }
         sb.append("\n      ]\n    }");
       }
-      sb.append("\n  }\n}\n");
+      sb.append("\n  }");
+      writeIndexes(db, sb);
+      sb.append("\n}\n");
     }
     Files.write(json, sb.toString().getBytes(StandardCharsets.UTF_8));
   }

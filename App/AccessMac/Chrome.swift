@@ -1,4 +1,5 @@
 import AccessCore
+import AppKit
 import SwiftUI
 
 /// The tabs of the Access ribbon.
@@ -18,6 +19,11 @@ struct RibbonView: View {
     @Binding var viewMode: ObjectViewMode
     @Binding var showSystemObjects: Bool
     @Binding var showInfo: Bool
+
+    /// Record commands apply to a local table open in Datasheet view.
+    private var editsRecords: Bool {
+        activeObject?.category == .tables && activeObject?.isLinked == false && viewMode == .datasheet
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -40,9 +46,15 @@ struct RibbonView: View {
                         .disabled(activeObject?.category != .tables)
                     }
                     RibbonGroup("Records") {
-                        RibbonButton("New", "plus.rectangle", enabled: false)
-                        RibbonButton("Save", "square.and.arrow.down", enabled: false)
-                        RibbonButton("Delete", "trash", enabled: false)
+                        RibbonButton("New", "plus.rectangle", enabled: editsRecords) {
+                            NotificationCenter.default.post(name: .datasheetNewRecord, object: nil)
+                        }
+                        RibbonButton("Save", "square.and.arrow.down") {
+                            NSApp.sendAction(#selector(NSDocument.save(_:)), to: nil, from: nil)
+                        }
+                        RibbonButton("Delete", "trash", enabled: editsRecords) {
+                            NotificationCenter.default.post(name: .datasheetDeleteRecords, object: nil)
+                        }
                     }
                     RibbonGroup("Sort & Filter") {
                         RibbonButton("Ascending", "arrow.up", enabled: false)

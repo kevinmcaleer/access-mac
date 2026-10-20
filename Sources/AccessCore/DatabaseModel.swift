@@ -106,7 +106,7 @@ public final class DatabaseModel {
 public final class Recordset {
     public let table: Table
     public let columns: [Column]
-    private let locations: [RowPointer]
+    private var locations: [RowPointer]
     private var blocks: [Int: [[Value]]] = [:]
     private var blockOrder: [Int] = []
     private let blockSize = 256
@@ -133,6 +133,68 @@ public final class Recordset {
     public func value(row: Int, column: Int) -> Value {
         let values = row < count ? self.row(row) : []
         return column < values.count ? values[column] : .null
+    }
+
+    // MARK: Editing
+
+    /// Why records can't be changed here, or nil when they can.
+    public var editingRestriction: String? {
+        if table.name.hasPrefix("MSys") { return "System tables are read-only." }
+        return table.editingRestriction
+    }
+
+    public func location(ofRow index: Int) -> RowPointer { locations[index] }
+
+    /// Re-reads which records exist, after edits made elsewhere.
+    public func refresh() throws {
+        locations = try table.rowLocations()
+        blocks.removeAll()
+        blockOrder.removeAll()
+    }
+
+    public func index(of location: RowPointer) -> Int? { locations.firstIndex(of: location) }
+
+    /// Changes one field of the record at `location`, returning the value it
+    /// replaced.
+    @discardableResult
+    public func setValue(_ value: Value, at location: RowPointer, column: Int) throws -> Value {
+        guard let index = index(of: location) else { throw WriteError.rowNotFound }
+        var values = try table.row(at: location)
+        let old = values[column]
+        values[column] = value
+        try table.updateRow(at: location, with: values)
+        forget(row: index)
+        return old
+    }
+
+    /// Adds a record at the end and returns its location.
+    @discardableResult
+    public func append(_ values: [Value], keepingAutoNumbers: Bool = false) throws -> RowPointer {
+        let (location, _) = try table.insertRow(values, keepingAutoNumbers: keepingAutoNumbers)
+        locations.append(location)
+        forget(row: locations.count - 1)
+        return location
+    }
+
+    /// Deletes records, returning their values so they can be restored.
+    @discardableResult
+    public func delete(_ targets: [RowPointer]) throws -> [[Value]] {
+        var removed: [[Value]] = []
+        for location in targets {
+            removed.append(try table.row(at: location))
+            try table.deleteRow(at: location)
+        }
+        let gone = Set(targets)
+        locations.removeAll { gone.contains($0) }
+        blocks.removeAll()
+        blockOrder.removeAll()
+        return removed
+    }
+
+    private func forget(row index: Int) {
+        let block = index / blockSize
+        blocks[block] = nil
+        blockOrder.removeAll { $0 == block }
     }
 
     private func load(_ block: Int) {
